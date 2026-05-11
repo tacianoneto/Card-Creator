@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  Archive,
   CheckCircle2,
   Copy,
+  DownloadCloud,
   FolderKanban,
   FileDown,
   FileUp,
@@ -59,6 +61,41 @@ function formatBytes(bytes: number | null) {
 function buildBackupFileName() {
   const date = new Date().toISOString().slice(0, 10);
   return `board-card-studio-backup-${date}.json`;
+}
+
+const WELCOME_DISMISSED_KEY = 'bcs-local-storage-welcome-dismissed';
+const LAST_BACKUP_AT_KEY = 'bcs-last-backup-at';
+const BACKUP_PROJECT_STATE_KEY = 'bcs-backup-project-state';
+const BACKUP_REMINDER_DAYS = 7;
+const BACKUP_REMINDER_CHANGES = 8;
+
+function readStoredNumber(key: string) {
+  const value = Number(localStorage.getItem(key) ?? '');
+  return Number.isFinite(value) ? value : 0;
+}
+
+function readBackupProjectState() {
+  try {
+    return JSON.parse(localStorage.getItem(BACKUP_PROJECT_STATE_KEY) ?? '{}') as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
+
+function writeBackupProjectState(projects: ProjectMeta[]) {
+  localStorage.setItem(
+    BACKUP_PROJECT_STATE_KEY,
+    JSON.stringify(Object.fromEntries(projects.map((project) => [project.id, project.updatedAt]))),
+  );
+}
+
+function countProjectChangesSinceBackup(projects: ProjectMeta[]) {
+  const state = readBackupProjectState();
+  return projects.filter((project) => (state[project.id] ?? 0) !== project.updatedAt).length;
+}
+
+function currentTimestamp() {
+  return Date.now();
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +241,7 @@ function ProjectCard({ meta, onOpen, onDuplicate, onExport, onDelete }: ProjectC
           <button type="button" onClick={onDuplicate} title="Duplicar projeto">
             <Copy size={11} />
           </button>
-          <button type="button" onClick={onExport} title="Exportar projeto JSON">
+          <button type="button" onClick={onExport} title="Exportar projeto">
             <FileDown size={11} />
           </button>
           <button type="button" onClick={onDelete} title="Excluir projeto" className="hs-proj-card__delete">
@@ -229,6 +266,8 @@ export function HomeScreen({ onOpenProject }: HomeScreenProps) {
   const [showNewModal, setShowNewModal] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [storageStatus, setStorageStatus] = useState<LocalStorageStatus | null>(null);
+  const [isWelcomeVisible, setIsWelcomeVisible] = useState(() => localStorage.getItem(WELCOME_DISMISSED_KEY) !== '1');
+  const [now, setNow] = useState(() => Date.now());
   const importRef = useRef<HTMLInputElement>(null);
 
   const refreshStorageStatus = async () => {
@@ -240,12 +279,14 @@ export function HomeScreen({ onOpenProject }: HomeScreenProps) {
   };
 
   const refresh = () => {
+    setNow(currentTimestamp());
     setProjects(loadLibrary().projects);
     void refreshStorageStatus();
   };
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      setNow(currentTimestamp());
       void refreshStorageStatus();
     }, 0);
     return () => window.clearTimeout(timer);
@@ -302,6 +343,14 @@ export function HomeScreen({ onOpenProject }: HomeScreenProps) {
     const url = URL.createObjectURL(blob);
     downloadDataUrl(buildBackupFileName(), url);
     setTimeout(() => URL.revokeObjectURL(url), 0);
+    localStorage.setItem(LAST_BACKUP_AT_KEY, String(currentTimestamp()));
+    writeBackupProjectState(loadLibrary().projects);
+    refresh();
+  };
+
+  const dismissWelcome = () => {
+    localStorage.setItem(WELCOME_DISMISSED_KEY, '1');
+    setIsWelcomeVisible(false);
   };
 
   const handleRequestPersistence = async () => {
@@ -348,6 +397,14 @@ export function HomeScreen({ onOpenProject }: HomeScreenProps) {
   const usageRatio = storageStatus?.usageBytes !== null && storageStatus?.quotaBytes
     ? Math.min(100, Math.round((storageStatus.usageBytes / storageStatus.quotaBytes) * 100))
     : null;
+  const lastBackupAt = readStoredNumber(LAST_BACKUP_AT_KEY);
+  const daysSinceBackup = lastBackupAt ? Math.floor((now - lastBackupAt) / 86_400_000) : null;
+  const changedProjects = countProjectChangesSinceBackup(projects);
+  const shouldSuggestBackup = projects.length > 0 && (
+    !lastBackupAt ||
+    (daysSinceBackup !== null && daysSinceBackup >= BACKUP_REMINDER_DAYS) ||
+    changedProjects >= BACKUP_REMINDER_CHANGES
+  );
 
   return (
     <div className="hs">
@@ -368,7 +425,7 @@ export function HomeScreen({ onOpenProject }: HomeScreenProps) {
             onClick={() => importRef.current?.click()}
           >
             <FileUp size={14} />
-            Importar
+            Importar backup
           </button>
           <button
             type="button"
@@ -383,6 +440,46 @@ export function HomeScreen({ onOpenProject }: HomeScreenProps) {
 
       {/* ── Content ── */}
       <main className="hs-content">
+        {isWelcomeVisible ? (
+          <section className="hs-welcome-card">
+            <div className="hs-welcome-card__icon">
+              <Archive size={22} />
+            </div>
+            <div>
+              <span>Antes de começar</span>
+              <h2>Seus projetos ficam salvos neste navegador.</h2>
+              <p>Use <strong>Backup completo</strong> para não perder dados ao trocar de computador, limpar o navegador ou reinstalar o app.</p>
+            </div>
+            <div className="hs-welcome-card__actions">
+              <button type="button" className="hs-btn hs-btn--primary" onClick={handleExportAll} disabled={projects.length === 0}>
+                <DownloadCloud size={14} />
+                Fazer backup
+              </button>
+              <button type="button" className="hs-btn hs-btn--ghost" onClick={dismissWelcome}>
+                Entendi
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {shouldSuggestBackup ? (
+          <section className="hs-backup-reminder">
+            <AlertTriangle size={17} />
+            <div>
+              <strong>Backup recomendado</strong>
+              <span>
+                {!lastBackupAt
+                  ? 'Voce ainda nao exportou um backup completo.'
+                  : `${changedProjects} projeto(s) mudaram desde o ultimo backup${daysSinceBackup !== null ? `, feito ha ${daysSinceBackup} dia(s)` : ''}.`}
+              </span>
+            </div>
+            <button type="button" className="hs-btn hs-btn--primary" onClick={handleExportAll}>
+              <FileDown size={14} />
+              Exportar tudo
+            </button>
+          </section>
+        ) : null}
+
         <section className="hs-storage-card">
           <div className="hs-storage-card__main">
             <div className={storageStatus?.persistent ? 'hs-storage-card__icon hs-storage-card__icon--ok' : 'hs-storage-card__icon'}>
@@ -413,7 +510,7 @@ export function HomeScreen({ onOpenProject }: HomeScreenProps) {
             ) : null}
             <button type="button" className="hs-btn hs-btn--ghost" onClick={handleExportAll} disabled={projects.length === 0}>
               <FileDown size={14} />
-              Backup completo
+              Exportar tudo
             </button>
           </div>
         </section>

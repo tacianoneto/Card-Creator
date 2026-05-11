@@ -3641,6 +3641,95 @@ textarea.data-field__control {
   padding: 32px 40px;
 }
 
+.hs-welcome-card,
+.hs-backup-reminder {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+}
+
+.hs-welcome-card {
+  justify-content: space-between;
+  padding: 18px;
+  background:
+    linear-gradient(135deg, rgba(116, 164, 255, 0.13), rgba(246, 168, 35, 0.08)),
+    var(--surface-1);
+}
+
+.hs-welcome-card__icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid rgba(116, 164, 255, 0.35);
+  border-radius: 14px;
+  background: rgba(116, 164, 255, 0.12);
+  color: #b9ccff;
+}
+
+.hs-welcome-card span {
+  display: block;
+  color: #aab8d3;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hs-welcome-card h2 {
+  margin: 3px 0 4px;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.hs-welcome-card p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hs-welcome-card__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.hs-backup-reminder {
+  padding: 12px 14px;
+  background: rgba(246, 168, 35, 0.09);
+  border-color: rgba(246, 168, 35, 0.25);
+  color: #f6c15c;
+}
+
+.hs-backup-reminder > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.hs-backup-reminder strong,
+.hs-backup-reminder span {
+  display: block;
+}
+
+.hs-backup-reminder strong {
+  color: #ffe0a3;
+  font-size: 13px;
+}
+
+.hs-backup-reminder span {
+  margin-top: 2px;
+  color: #d8c5a4;
+  font-size: 12px;
+}
+
 .hs-storage-card {
   display: flex;
   align-items: center;
@@ -6554,6 +6643,16 @@ textarea:focus-visible {
   .hs-storage-card {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .hs-welcome-card,
+  .hs-backup-reminder {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .hs-welcome-card__actions {
+    justify-content: flex-start;
   }
 
   .hs-storage-card__actions {
