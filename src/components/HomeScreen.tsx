@@ -12,7 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
-import { createEmptyDeck, createId, CARD_PRESETS } from '../lib/editor';
+import { CARD_PRESETS, clampCardDimension, createEmptyDeck, createId } from '../lib/editor';
 import {
   deleteProject,
   duplicateProject,
@@ -103,23 +103,44 @@ function currentTimestamp() {
 // ---------------------------------------------------------------------------
 
 interface NewProjectModalProps {
-  onConfirm: (name: string, description: string, presetId: string) => void;
+  onConfirm: (name: string, description: string, width: number, height: number) => void;
   onClose: () => void;
 }
+
+const CUSTOM_PRESET_ID = 'custom';
 
 function NewProjectModal({ onConfirm, onClose }: NewProjectModalProps) {
   const [name, setName] = useState('Novo Projeto');
   const [description, setDescription] = useState('');
   const [presetId, setPresetId] = useState(CARD_PRESETS[0].id);
+  const [customWidth, setCustomWidth] = useState(CARD_PRESETS[0].width);
+  const [customHeight, setCustomHeight] = useState(CARD_PRESETS[0].height);
+  const backdropMouseDownRef = useRef(false);
+
+  const isCustom = presetId === CUSTOM_PRESET_ID;
+  const selectedPreset = CARD_PRESETS.find((preset) => preset.id === presetId) ?? CARD_PRESETS[0];
+  const resolvedWidth = isCustom ? clampCardDimension(customWidth) : selectedPreset.width;
+  const resolvedHeight = isCustom ? clampCardDimension(customHeight) : selectedPreset.height;
+
+  const handleBackdropMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    backdropMouseDownRef.current = event.target === event.currentTarget;
+  };
+
+  const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (backdropMouseDownRef.current && event.target === event.currentTarget) {
+      onClose();
+    }
+    backdropMouseDownRef.current = false;
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onConfirm(name.trim(), description.trim(), presetId);
+    onConfirm(name.trim(), description.trim(), resolvedWidth, resolvedHeight);
   };
 
   return (
-    <div className="hs-modal-backdrop" onClick={onClose}>
+    <div className="hs-modal-backdrop" onMouseDown={handleBackdropMouseDown} onClick={handleBackdropClick}>
       <div className="hs-modal" onClick={(e) => e.stopPropagation()}>
         <div className="hs-modal__header">
           <h2>Novo Projeto</h2>
@@ -166,7 +187,40 @@ function NewProjectModal({ onConfirm, onClose }: NewProjectModalProps) {
                   <span className="hs-preset-btn__size">{preset.width}×{preset.height}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                className={`hs-preset-btn${isCustom ? ' hs-preset-btn--active' : ''}`}
+                onClick={() => setPresetId(CUSTOM_PRESET_ID)}
+              >
+                <span className="hs-preset-btn__name">Personalizado</span>
+                <span className="hs-preset-btn__size">{resolvedWidth}×{resolvedHeight}</span>
+              </button>
             </div>
+            {isCustom ? (
+              <div className="hs-custom-size">
+                <label>
+                  <span>Largura</span>
+                  <input
+                    type="number"
+                    min={240}
+                    max={2000}
+                    value={customWidth}
+                    onChange={(event) => setCustomWidth(Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  <span>Altura</span>
+                  <input
+                    type="number"
+                    min={240}
+                    max={2000}
+                    value={customHeight}
+                    onChange={(event) => setCustomHeight(Number(event.target.value))}
+                  />
+                </label>
+                <small>Limite: 240 a 2000 px.</small>
+              </div>
+            ) : null}
           </div>
 
           <div className="hs-modal__footer">
@@ -296,15 +350,14 @@ export function HomeScreen({ onOpenProject }: HomeScreenProps) {
   // Create
   // ---------------------------------------------------------------------------
 
-  const handleCreate = (name: string, description: string, presetId: string) => {
-    const preset = CARD_PRESETS.find((p) => p.id === presetId) ?? CARD_PRESETS[0];
+  const handleCreate = (name: string, description: string, width: number, height: number) => {
     const newId = createId();
     saveProject({
       version: 1,
       id: newId,
       name,
       description,
-      decks: [createEmptyDeck('Principal', preset.width, preset.height)],
+      decks: [createEmptyDeck('Principal', width, height)],
       cards: [],
       graphics: [],
       fonts: [],
