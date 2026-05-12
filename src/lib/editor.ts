@@ -146,6 +146,10 @@ export const CARD_PRESETS: CardPreset[] = [
   { id: 'standard', label: 'Standard 63 x 88 mm', width: 744, height: 1038 },
   { id: 'tarot', label: 'Tarot 70 x 120 mm', width: 826, height: 1417 },
   { id: 'mini', label: 'Mini 44 x 67 mm', width: 519, height: 791 },
+  { id: 'mini-usa', label: 'Mini USA 41 x 63 mm', width: 484, height: 744 },
+  { id: 'mini-euro', label: 'Mini Euro 44 x 68 mm', width: 520, height: 803 },
+  { id: 'mini-chimera', label: 'Mini Chimera 43 x 65 mm', width: 508, height: 768 },
+  { id: 'dixit', label: 'Dixit 80 x 120 mm', width: 945, height: 1417 },
   { id: 'square', label: 'Quadrada 70 x 70 mm', width: 900, height: 900 },
 ];
 
