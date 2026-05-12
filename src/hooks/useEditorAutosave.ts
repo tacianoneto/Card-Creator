@@ -21,6 +21,7 @@ interface UseEditorAutosaveOptions {
   templates: CardTemplate[];
   templatesRef: RefLike<CardTemplate[]>;
   totalCards: number;
+  isInteractionActive?: boolean;
 }
 
 export function useEditorAutosave({
@@ -36,11 +37,14 @@ export function useEditorAutosave({
   templates,
   templatesRef,
   totalCards,
+  isInteractionActive = false,
 }: UseEditorAutosaveOptions) {
   const autosaveFailedRef = useRef(false);
   const notifyError = useEffectEvent(onError);
 
   useEffect(() => {
+    if (isInteractionActive) return;
+
     let cancelIdle: (() => void) | null = null;
     const timeoutId = window.setTimeout(() => {
       cancelIdle = queueIdleTask(() => {
@@ -87,5 +91,6 @@ export function useEditorAutosave({
     projectId,
     projectNameRef,
     totalCards,
+    isInteractionActive,
   ]);
 }

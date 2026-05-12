@@ -87,7 +87,7 @@ import type {
 // Constants
 // ---------------------------------------------------------------------------
 
-const THUMBNAIL_DELAY_MS = 2500;
+const THUMBNAIL_DELAY_MS = 6500;
 const TOAST_DURATION_MS = 3200;
 
 // ---------------------------------------------------------------------------
@@ -604,6 +604,7 @@ export function EditorScreen({
   const [replaceValue, setReplaceValue] = useState('');
   const [findMatchCase, setFindMatchCase] = useState(false);
   const [showNewDeckModal, setShowNewDeckModal] = useState(false);
+  const [isCanvasInteracting, setIsCanvasInteracting] = useState(false);
   const [sidebarWidth, beginSidebarResize] = useResizablePanel(252, 220, 520, 'right');
   const [inspectorWidth, beginInspectorResize] = useResizablePanel(320, 270, 520, 'left');
   const launchTemplateHandledRef = useRef(false);
@@ -629,6 +630,8 @@ export function EditorScreen({
   const copiedStyleRef = useRef<CardElement | null>(null);
   const pendingCanvasMoveRef = useRef<{ elementId: string; x: number; y: number } | null>(null);
   const canvasMoveFrameRef = useRef<number | null>(null);
+  const pendingElementUpdatesRef = useRef<Map<string, CardElementPatch>>(new Map());
+  const elementUpdateFrameRef = useRef<number | null>(null);
 
   useEffect(() => { decksRef.current = decks; }, [decks]);
   useEffect(() => { activeDeckIdRef.current = activeDeckId; }, [activeDeckId]);
@@ -636,6 +639,10 @@ export function EditorScreen({
   useEffect(() => { templatesRef.current = templates; }, [templates]);
   useEffect(() => { editingTemplateIdRef.current = editingTemplateId; }, [editingTemplateId]);
   useEffect(() => { templateDraftCardRef.current = templateDraftCard; }, [templateDraftCard]);
+  useEffect(() => () => {
+    if (canvasMoveFrameRef.current !== null) window.cancelAnimationFrame(canvasMoveFrameRef.current);
+    if (elementUpdateFrameRef.current !== null) window.cancelAnimationFrame(elementUpdateFrameRef.current);
+  }, []);
 
   const syncTemplateDraftCard = (card: CardDocument) => {
     const nextCard = cloneCardDocument(card);
@@ -712,6 +719,8 @@ export function EditorScreen({
     () => decks.reduce((t, d) => t + d.cards.length, 0),
     [decks],
   );
+  const activeElementCount = activeCard.elements.length;
+  const thumbnailSignature = `${activeCard.id}|${activeCard.name}|${activeCard.width}x${activeCard.height}|${activeCard.background.primaryColor}|${activeCard.background.secondaryColor}|${activeCard.background.gradientAngle}|${activeCard.background.texture}|${activeElementCount}`;
 
   const hasSelection = !isDataEditMode && selectedElements.length > 0;
   const canFlipSelection = !isDataEditMode && selectedElements.length > 0;
@@ -769,6 +778,7 @@ export function EditorScreen({
     templates,
     templatesRef,
     totalCards,
+    isInteractionActive: isCanvasInteracting,
   });
 
   const persistCurrentProject = () => {
@@ -803,10 +813,10 @@ export function EditorScreen({
     const timeoutId = window.setTimeout(() => {
       cancelIdle = queueIdleTask(() => {
         if (isEditingExistingTemplate) return;
-        if (!shouldAutoCaptureThumbnail(totalCards)) return;
+        if (!shouldAutoCaptureThumbnail(totalCards) || activeElementCount > 32) return;
         const el = cardRef.current;
         if (!el) return;
-        renderNodeToPng(el, { pixelRatio: 0.3, cacheBust: false }, fonts)
+        renderNodeToPng(el, { pixelRatio: 0.22, cacheBust: false }, fonts)
           .then((url) => updateProjectThumbnail(projectId, url))
           .catch(() => {});
       });
@@ -815,7 +825,7 @@ export function EditorScreen({
       window.clearTimeout(timeoutId);
       cancelIdle?.();
     };
-  }, [activeCard, fonts, isEditingExistingTemplate, projectId, totalCards]);
+  }, [activeElementCount, thumbnailSignature, fonts, isEditingExistingTemplate, projectId, totalCards]);
 
   // ── onGoHome: snapshot thumbnail first ───────────────────────────────────
   const onGoHome = () => {
@@ -853,6 +863,7 @@ export function EditorScreen({
 
   // Update active deck's cards inside decks array.
   const commitCards = (updater: (current: CardDocument[]) => CardDocument[]) => {
+    const shouldCaptureHistory = dragHistorySnapshotRef.current === null;
     const draftCard = templateDraftCardRef.current;
     if (draftCard) {
       const currentCards = [draftCard];
@@ -860,7 +871,7 @@ export function EditorScreen({
       if (nextCards === currentCards) return;
       const nextCard = nextCards[0] ?? draftCard;
 
-      pushCardsHistory(currentCards);
+      if (shouldCaptureHistory) pushCardsHistory(currentCards);
       syncTemplateDraftCard(nextCard);
       setActiveCardId(nextCard.id);
       return;
@@ -873,7 +884,7 @@ export function EditorScreen({
     const nextCards = updater(currentCards);
     if (nextCards === currentCards) return;
 
-    pushCardsHistory(currentCards);
+    if (shouldCaptureHistory) pushCardsHistory(currentCards);
 
     const nextDecks = currentDecks.map((d) => (d.id === deckId ? { ...d, cards: nextCards } : d));
     decksRef.current = nextDecks;
@@ -981,18 +992,8 @@ export function EditorScreen({
     });
   };
 
-  const updateElement = (elementId: string, patch: CardElementPatch) => {
-    if (isDataEditMode) return;
-    updateActiveCard((card) => ({
-      ...card,
-      elements: card.elements.map((e) =>
-        e.id === elementId && !e.locked ? ({ ...e, ...patch } as CardElement) : e,
-      ),
-    }));
-  };
-
-  const updateElements = (updates: Array<{ id: string; patch: CardElementPatch }>) => {
-    if (isDataEditMode) return;
+  const applyElementUpdates = (updates: Array<{ id: string; patch: CardElementPatch }>) => {
+    if (updates.length === 0) return;
     const patchById = new Map(updates.map((update) => [update.id, update.patch]));
     updateActiveCard((card) => ({
       ...card,
@@ -1001,6 +1002,46 @@ export function EditorScreen({
         return patch && !element.locked ? ({ ...element, ...patch } as CardElement) : element;
       }),
     }));
+  };
+
+  const flushPendingElementUpdates = () => {
+    if (elementUpdateFrameRef.current !== null) {
+      window.cancelAnimationFrame(elementUpdateFrameRef.current);
+      elementUpdateFrameRef.current = null;
+    }
+    const updates = Array.from(pendingElementUpdatesRef.current.entries()).map(([id, patch]) => ({ id, patch }));
+    pendingElementUpdatesRef.current.clear();
+    applyElementUpdates(updates);
+  };
+
+  const queueElementUpdates = (updates: Array<{ id: string; patch: CardElementPatch }>) => {
+    updates.forEach(({ id, patch }) => {
+      const nextPatch: CardElementPatch = {
+        ...(pendingElementUpdatesRef.current.get(id) ?? {}),
+        ...patch,
+      } as CardElementPatch;
+      pendingElementUpdatesRef.current.set(id, nextPatch);
+    });
+    if (elementUpdateFrameRef.current !== null) return;
+    elementUpdateFrameRef.current = window.requestAnimationFrame(() => {
+      elementUpdateFrameRef.current = null;
+      const nextUpdates = Array.from(pendingElementUpdatesRef.current.entries()).map(([id, patch]) => ({ id, patch }));
+      pendingElementUpdatesRef.current.clear();
+      applyElementUpdates(nextUpdates);
+    });
+  };
+
+  const updateElement = (elementId: string, patch: CardElementPatch) => {
+    updateElements([{ id: elementId, patch }]);
+  };
+
+  const updateElements = (updates: Array<{ id: string; patch: CardElementPatch }>) => {
+    if (isDataEditMode) return;
+    if (dragHistorySnapshotRef.current) {
+      queueElementUpdates(updates);
+      return;
+    }
+    applyElementUpdates(updates);
   };
 
   const updateDynamicField = (key: string, value: string) => {
@@ -1292,6 +1333,7 @@ export function EditorScreen({
       dragHistorySnapshotRef.current = snapshot;
       altDragSnapshotRef.current = duplicateOnDrag ? snapshot : null;
       pushCardsHistory(snapshot);
+      setIsCanvasInteracting(true);
       return;
     }
 
@@ -1302,6 +1344,7 @@ export function EditorScreen({
     dragHistorySnapshotRef.current = deck!.cards;
     altDragSnapshotRef.current = duplicateOnDrag ? deck!.cards : null;
     pushCardsHistory(deck!.cards);
+    setIsCanvasInteracting(true);
   };
 
   const applyCanvasElementMove = (elementId: string, x: number, y: number) => {
@@ -1382,7 +1425,9 @@ export function EditorScreen({
   };
 
   const endElementMoveHistory = () => {
+    flushPendingElementUpdates();
     flushPendingCanvasMove();
+    setIsCanvasInteracting(false);
     const snapshot = altDragSnapshotRef.current;
     altDragSnapshotRef.current = null;
     dragHistorySnapshotRef.current = null;
@@ -2357,6 +2402,7 @@ export function EditorScreen({
           onMoveCardsToDeck={moveCardsToDeck}
           decks={decks}
           activeDeckId={activeDeckId}
+          isCanvasInteracting={isCanvasInteracting}
           onSelectDeck={switchDeck}
           onAddDeck={() => setShowNewDeckModal(true)}
           onRenameDeck={renameDeck}

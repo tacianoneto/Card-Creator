@@ -22,6 +22,7 @@ interface CardStripProps {
   // Deck props
   decks: Deck[];
   activeDeckId: string;
+  isCanvasInteracting?: boolean;
   onSelectDeck: (deckId: string) => void;
   onAddDeck: () => void;
   onRenameDeck: (deckId: string, name: string) => void;
@@ -136,6 +137,7 @@ export function CardStrip({
   onMoveCardsToDeck,
   decks,
   activeDeckId,
+  isCanvasInteracting = false,
   onSelectDeck,
   onAddDeck,
   onRenameDeck,
@@ -483,7 +485,7 @@ export function CardStrip({
                   onSelectCard(card.id);
                 }}
               >
-                {useLightweightPreviews && !isActive ? (
+                {(isCanvasInteracting || (useLightweightPreviews && !isActive)) ? (
                   <LightweightCardThumbnail card={card} />
                 ) : (
                   <CardThumbnail card={card} />

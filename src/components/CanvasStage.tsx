@@ -22,6 +22,7 @@ type FreeTransformHandle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
 const SMART_GUIDE_THRESHOLD = 6;
 const MIN_TRANSFORM_SIZE = 4;
 const FREE_TRANSFORM_HANDLES: FreeTransformHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+let measureCanvas: HTMLCanvasElement | null = null;
 
 class ElementErrorBoundary extends Component<
   { children: ReactNode; elementName: string },
@@ -855,8 +856,10 @@ export function CanvasStage({
                 const isSelected = !isLocked && selectedElementIdSet.has(element.id);
                 const isEditing = editingElementId === element.id && element.type === 'text';
                 const allowResize = isSelected && selectedElementIds.length === 1 && !isEditing;
-                const visualBox = getElementVisualBox(element, element.type === 'image' ? imageSizes[element.src] : undefined);
                 const showSingleSelectionFrame = allowResize;
+                const visualBox = showSingleSelectionFrame
+                  ? getElementVisualBox(element, element.type === 'image' ? imageSizes[element.src] : undefined)
+                  : null;
                 const groupColor = getGroupColor(element.groupId);
                 const className = [
                   'canvas-node',
@@ -948,10 +951,10 @@ export function CanvasStage({
                         <div
                           className="canvas-selection-frame"
                           style={{
-                            left: visualBox.x,
-                            top: visualBox.y,
-                            width: visualBox.width,
-                            height: visualBox.height,
+                            left: visualBox?.x ?? 0,
+                            top: visualBox?.y ?? 0,
+                            width: visualBox?.width ?? element.width,
+                            height: visualBox?.height ?? element.height,
                           }}
                         >
                           {FREE_TRANSFORM_HANDLES.map((handle) => (
@@ -1321,6 +1324,10 @@ function getBounds(elements: CardElement[]): Bounds | null {
 }
 
 function getElementVisualBox(element: CardElement, naturalSize?: NaturalSize): VisualBounds {
+  if (element.type === 'text') {
+    return getTextElementVisualBox(element);
+  }
+
   if (element.type !== 'image' || element.fit !== 'contain' || !naturalSize || naturalSize.width <= 0 || naturalSize.height <= 0) {
     return { x: 0, y: 0, width: element.width, height: element.height, isInset: false };
   }
@@ -1345,6 +1352,100 @@ function getElementVisualBox(element: CardElement, naturalSize?: NaturalSize): V
     height: Math.max(1, height),
     isInset: Math.abs(x) > 0.5 || Math.abs(y) > 0.5 || Math.abs(width - element.width) > 0.5 || Math.abs(height - element.height) > 0.5,
   };
+}
+
+function getTextElementVisualBox(element: TextElement): VisualBounds {
+  const contentWidth = element.autoFitFont ? element.width : measureTextOverflowWidth(element);
+  const lineCount = Math.max(1, getTextPlainContent(element).split('\n').length);
+  const textHeight = Math.max(1, lineCount * element.fontSize * element.lineHeight);
+  const padding = getTextVisualPadding(element);
+  const width = Math.max(element.width, contentWidth + padding * 2);
+  const height = Math.max(element.height, textHeight + padding * 2);
+  const x = width > element.width
+    ? element.align === 'right'
+      ? element.width - width
+      : element.align === 'left'
+        ? 0
+        : (element.width - width) / 2
+    : 0;
+  const y = height > element.height ? (element.height - height) / 2 : 0;
+  return {
+    x,
+    y,
+    width,
+    height,
+    isInset: Math.abs(x) > 0.5 || Math.abs(y) > 0.5 || Math.abs(width - element.width) > 0.5 || Math.abs(height - element.height) > 0.5,
+  };
+}
+
+function getTextPlainContent(element: TextElement) {
+  return element.richContent?.length
+    ? element.richContent.map((span) => span.text).join('')
+    : element.content;
+}
+
+function getTextVisualPadding(element: TextElement) {
+  const stroke = element.textStrokeEnabled ? element.textStrokeWidth ?? 2 : 0;
+  const shadow = element.shadowEnabled
+    ? Math.max(
+      Math.abs(element.shadowOffsetX ?? 2),
+      Math.abs(element.shadowOffsetY ?? 2),
+    ) + (element.shadowBlur ?? 8)
+    : 0;
+  const glow = element.glowEnabled ? element.glowIntensity ?? 10 : 0;
+  return Math.ceil(Math.max(1, stroke, shadow * 0.45, glow * 0.35));
+}
+
+function measureTextOverflowWidth(element: TextElement) {
+  const content = transformText(getTextPlainContent(element), element.textTransform);
+  return Math.max(...content.split('\n').map((line) => measureLongestUnbreakableText(line, element)), 1);
+}
+
+function measureLongestUnbreakableText(line: string, element: TextElement) {
+  const tokens = line.split(/\s+/).filter(Boolean);
+  const candidates = tokens.length > 0 ? tokens : [line];
+  return Math.max(...candidates.map((token) => {
+    const characters = Array.from(token).length;
+    return measureText(token, {
+      fontFamily: element.fontFamily,
+      fontSize: element.fontSize,
+      fontStyle: element.fontStyle ?? 'normal',
+      fontWeight: element.fontWeight,
+    }) + Math.max(0, characters - 1) * element.letterSpacing;
+  }), 1);
+}
+
+function transformText(text: string, transform: TextElement['textTransform']) {
+  if (transform === 'uppercase') return text.toUpperCase();
+  if (transform === 'capitalize') return text.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+  return text;
+}
+
+function measureText(
+  text: string,
+  font: { fontFamily: string; fontSize: number; fontStyle: string; fontWeight: number },
+) {
+  const context = getMeasureContext();
+  if (!context) return Array.from(text).length * font.fontSize * 0.62;
+  context.font = `${font.fontStyle} ${font.fontWeight} ${font.fontSize}px ${formatCanvasFontFamily(font.fontFamily)}`;
+  return context.measureText(text).width;
+}
+
+function getMeasureContext() {
+  if (typeof document === 'undefined') return null;
+  measureCanvas ??= document.createElement('canvas');
+  return measureCanvas.getContext('2d');
+}
+
+function formatCanvasFontFamily(fontFamily: string) {
+  return fontFamily
+    .split(',')
+    .map((family) => {
+      const clean = family.trim();
+      if (!clean || clean.startsWith('"') || clean.startsWith("'") || /^[a-z-]+$/i.test(clean)) return clean;
+      return `"${clean.replace(/"/g, '')}"`;
+    })
+    .join(', ');
 }
 
 function getLocalBoxWorldCenter(element: CardElement, box: Bounds) {
