@@ -510,6 +510,9 @@ export interface GraphicAsset {
   src: string;
   kind?: 'image' | 'icon';
   folderId?: string;
+  optimized?: boolean;
+  originalBytes?: number;
+  storedBytes?: number;
 }
 
 export interface AssetFolder {

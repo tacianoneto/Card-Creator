@@ -45,7 +45,7 @@ import {
   isProjectSnapshot,
   moveElementLayer,
   readFileAsDataUrl,
-  readImageFileAsOptimizedDataUrl,
+  readImageFileAsOptimizedDataUrlWithMeta,
   readFileAsText,
   registerFontAsset,
   reorderElementLayer,
@@ -583,6 +583,7 @@ export function EditorScreen({
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(mode === 'template' ? 'templates' : 'elements');
   const [graphics, setGraphics] = useState<GraphicAsset[]>(initialData.graphics);
   const [assetFolders, setAssetFolders] = useState<AssetFolder[]>(initialData.assetFolders);
+  const [optimizeImageUploads, setOptimizeImageUploads] = useState(true);
   const [fonts, setFonts] = useState<FontAsset[]>(initialData.fonts);
   const [systemFonts, setSystemFonts] = useState<string[]>([]);
   const [templates, setTemplates] = useState<CardTemplate[]>(initialData.templates);
@@ -1184,6 +1185,30 @@ export function EditorScreen({
       ),
     }));
     if (nextHidden) setSelectionStateIds((ids) => ids.filter((id) => id !== elementId));
+  };
+
+  const setSelectedLayersLocked = (locked: boolean) => {
+    const ids = new Set(selectedElementIds);
+    if (ids.size === 0) return;
+    updateActiveCard((card) => ({
+      ...card,
+      elements: card.elements.map((el) =>
+        ids.has(el.id) ? ({ ...el, locked } as CardElement) : el,
+      ),
+    }));
+    if (locked) setSelectionStateIds([]);
+  };
+
+  const setSelectedLayersHidden = (hidden: boolean) => {
+    const ids = new Set(selectedElementIds);
+    if (ids.size === 0) return;
+    updateActiveCard((card) => ({
+      ...card,
+      elements: card.elements.map((el) =>
+        ids.has(el.id) && !el.locked ? ({ ...el, hidden } as CardElement) : el,
+      ),
+    }));
+    if (hidden) setSelectionStateIds((current) => current.filter((id) => !ids.has(id)));
   };
 
   const renameLayer = (elementId: string, name: string) =>
@@ -1906,20 +1931,45 @@ export function EditorScreen({
       const targetFolderId = pendingGraphicFolderIdRef.current;
       pendingGraphicFolderIdRef.current = undefined;
       const uploaded: GraphicAsset[] = [];
+      let optimizedCount = 0;
+      let originalBytes = 0;
+      let storedBytes = 0;
       for (const file of files.filter((f) => f.type.startsWith('image/'))) {
+        const image = optimizeImageUploads
+          ? await readImageFileAsOptimizedDataUrlWithMeta(file)
+          : {
+              src: await readFileAsDataUrl(file),
+              optimized: false,
+              originalBytes: file.size,
+              storedBytes: file.size,
+            };
+        optimizedCount += image.optimized ? 1 : 0;
+        originalBytes += image.originalBytes;
+        storedBytes += image.storedBytes;
         uploaded.push({
           id: createId(),
           name: file.name.replace(/\.[^.]+$/, ''),
-          src: await readImageFileAsOptimizedDataUrl(file),
+          src: image.src,
           kind: 'image',
           folderId: targetFolderId,
+          optimized: image.optimized,
+          originalBytes: image.originalBytes,
+          storedBytes: image.storedBytes,
         });
         if (uploaded.length % 2 === 0) await yieldToBrowser();
       }
       if (uploaded.length === 0) return;
       setGraphics((prev) => [...prev, ...uploaded]);
       setSidebarTab('assets');
-      pushToast('success', `${uploaded.length} imagem(ns) adicionada(s).`);
+      const savedPct = originalBytes > 0 && optimizedCount > 0
+        ? Math.round((1 - storedBytes / originalBytes) * 100)
+        : 0;
+      pushToast(
+        'success',
+        optimizedCount > 0
+          ? `${uploaded.length} imagem(ns) adicionada(s). ${optimizedCount} otimizada(s), -${savedPct}%.`
+          : `${uploaded.length} imagem(ns) adicionada(s).`,
+      );
     } catch { pushToast('error', 'Nao foi possivel carregar as imagens.'); }
   };
 
@@ -2279,6 +2329,10 @@ export function EditorScreen({
           onToggleGroup={toggleGroupCollapsed}
           onSelectGroup={selectGroup}
           onRenameGroup={renameGroup}
+          onGroupSelectedLayers={groupSelectedElements}
+          onUngroupSelectedLayers={ungroupSelectedElements}
+          onSetSelectedLayersLocked={setSelectedLayersLocked}
+          onSetSelectedLayersHidden={setSelectedLayersHidden}
           onSelectLayer={selectLayer}
           onMoveLayer={(elementId, direction) =>
             updateActiveCard((card) => ({ ...card, elements: moveElementLayer(card.elements, elementId, direction) }))
@@ -2302,6 +2356,8 @@ export function EditorScreen({
           onUpdateGraphicAsset={updateGraphicAsset}
           onDuplicateGraphicAsset={duplicateGraphicAsset}
           onDeleteGraphicAsset={deleteGraphicAsset}
+          optimizeImageUploads={optimizeImageUploads}
+          onToggleOptimizeImageUploads={setOptimizeImageUploads}
           onRequestGraphicUpload={(folderId) => {
             pendingGraphicFolderIdRef.current = folderId;
             graphicUploadRef.current?.click();

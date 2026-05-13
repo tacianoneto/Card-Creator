@@ -910,6 +910,42 @@ body {
   box-shadow: none;
 }
 
+.asset-explorer__optimize-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.asset-explorer__optimize-toggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--blue);
+}
+
+.asset-explorer__optimize-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.asset-explorer__optimize-toggle strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.asset-explorer__optimize-toggle small {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
 .asset-explorer__new-folder {
   grid-template-columns: minmax(0, 1fr) 30px;
 }
@@ -1132,6 +1168,69 @@ body {
 }
 
 /* Layer list */
+.sidebar__layer-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.sidebar__layer-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  padding: 6px 7px;
+}
+
+.sidebar__layer-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+  font-size: 11px;
+}
+
+.sidebar__layer-bulk-actions {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.sidebar__layer-bulk-actions button {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transform: none;
+  box-shadow: none;
+}
+
+.sidebar__layer-bulk-actions button:hover:not(:disabled) {
+  border-color: var(--border-md);
+  background: var(--surface-4);
+  color: var(--text);
+  transform: none;
+  box-shadow: none;
+}
+
+.sidebar__layer-bulk-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .sidebar__layer-list {
   display: flex;
   flex-direction: column;

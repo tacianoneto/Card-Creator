@@ -19,15 +19,18 @@ import {
   Frame,
   Gem,
   GripVertical,
+  Group,
   ImagePlus,
   Lock,
   Minus,
   Plus,
   ScanFace,
+  Search,
   Shapes,
   Sparkles,
   Trash2,
   Type,
+  Ungroup,
   Unlock,
   UserSquare2,
 } from 'lucide-react';
@@ -54,6 +57,10 @@ interface SidebarProps {
   onToggleGroup: (groupId: string) => void;
   onSelectGroup: (groupId: string, additive?: boolean) => void;
   onRenameGroup: (groupId: string, name: string) => void;
+  onGroupSelectedLayers: () => void;
+  onUngroupSelectedLayers: () => void;
+  onSetSelectedLayersLocked: (locked: boolean) => void;
+  onSetSelectedLayersHidden: (hidden: boolean) => void;
   onMoveLayer: (elementId: string, direction: 'forward' | 'backward') => void;
   onReorderLayer: (draggedId: string, targetId: string) => void;
   onToggleLayerLock: (elementId: string) => void;
@@ -70,6 +77,8 @@ interface SidebarProps {
   onUpdateGraphicAsset: (assetId: string, patch: Partial<GraphicAsset>) => void;
   onDuplicateGraphicAsset: (assetId: string) => void;
   onDeleteGraphicAsset: (assetId: string) => void;
+  optimizeImageUploads: boolean;
+  onToggleOptimizeImageUploads: (enabled: boolean) => void;
   onRequestGraphicUpload: (folderId?: string) => void;
   onRequestFontUpload: () => void;
   // Template system (Phase 6)
@@ -276,6 +285,10 @@ export function Sidebar({
   onToggleGroup,
   onSelectGroup,
   onRenameGroup,
+  onGroupSelectedLayers,
+  onUngroupSelectedLayers,
+  onSetSelectedLayersLocked,
+  onSetSelectedLayersHidden,
   onMoveLayer,
   onReorderLayer,
   onToggleLayerLock,
@@ -292,6 +305,8 @@ export function Sidebar({
   onUpdateGraphicAsset,
   onDuplicateGraphicAsset,
   onDeleteGraphicAsset,
+  optimizeImageUploads,
+  onToggleOptimizeImageUploads,
   onRequestGraphicUpload,
   onRequestFontUpload,
   templates = [],
@@ -306,6 +321,7 @@ export function Sidebar({
   const [dragOverLayerId, setDragOverLayerId] = useState<string | null>(null);
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [editingLayerName, setEditingLayerName] = useState('');
+  const [layerSearch, setLayerSearch] = useState('');
   const [selectedAssetFolderId, setSelectedAssetFolderId] = useState<string | null>(null);
   const [selectedAssetItem, setSelectedAssetItem] = useState<{ type: 'asset' | 'folder'; id: string } | null>(null);
   const [renamingAssetItem, setRenamingAssetItem] = useState<{ type: 'asset' | 'folder'; id: string } | null>(null);
@@ -319,11 +335,25 @@ export function Sidebar({
   const [showSaveModal, setShowSaveModal] = useState(false);
 
   const sortedLayers = useMemo(() => [...layers].sort((a, b) => b.zIndex - a.zIndex), [layers]);
-  const groupedLayers = useMemo(() => sortedLayers.reduce<Record<string, CardElement[]>>((groups, layer) => {
+  const visibleLayers = useMemo(() => {
+    const query = layerSearch.trim().toLowerCase();
+    if (!query) return sortedLayers;
+    return sortedLayers.filter((layer) => {
+      const groupName = layer.groupId ? groupNames[layer.groupId] ?? '' : '';
+      return [
+        layer.name,
+        layer.type,
+        groupName,
+        layer.locked ? 'bloqueada' : '',
+        layer.hidden ? 'oculta' : '',
+      ].some((value) => value.toLowerCase().includes(query));
+    });
+  }, [groupNames, layerSearch, sortedLayers]);
+  const groupedLayers = useMemo(() => visibleLayers.reduce<Record<string, CardElement[]>>((groups, layer) => {
     if (!layer.groupId) return groups;
     groups[layer.groupId] = [...(groups[layer.groupId] ?? []), layer];
     return groups;
-  }, {}), [sortedLayers]);
+  }, {}), [visibleLayers]);
   const renderedGroups = new Set<string>();
   const folderById = useMemo(() => new Map(assetFolders.map((folder) => [folder.id, folder])), [assetFolders]);
   const currentAssetFolderId = selectedAssetFolderId && folderById.has(selectedAssetFolderId)
@@ -604,6 +634,17 @@ export function Sidebar({
                   Fontes
                 </button>
               </div>
+              <label className="asset-explorer__optimize-toggle">
+                <input
+                  type="checkbox"
+                  checked={optimizeImageUploads}
+                  onChange={(event) => onToggleOptimizeImageUploads(event.target.checked)}
+                />
+                <span>
+                  <strong>Otimizar PNG grande</strong>
+                  <small>Converte para WebP quando reduzir peso.</small>
+                </span>
+              </label>
 
               <div className="asset-explorer__new-folder">
                 <input
@@ -912,15 +953,50 @@ export function Sidebar({
             <div>
               <div className="sidebar__section-head">
                 <span className="sidebar__section-label">
-                  Pilha de camadas ({layers.length})
+                  Pilha de camadas ({visibleLayers.length}/{layers.length})
                 </span>
+              </div>
+              <div className="sidebar__layer-tools">
+                <label className="sidebar__layer-search">
+                  <Search size={13} />
+                  <input
+                    type="search"
+                    value={layerSearch}
+                    onChange={(event) => setLayerSearch(event.target.value)}
+                    placeholder="Buscar camada, tipo ou grupo"
+                  />
+                </label>
+                {selectedElementIds.length > 0 ? (
+                  <div className="sidebar__layer-bulk-actions">
+                    <button type="button" title="Agrupar selecao" disabled={selectedElementIds.length < 2} onClick={onGroupSelectedLayers}>
+                      <Group size={12} />
+                    </button>
+                    <button type="button" title="Desagrupar selecao" onClick={onUngroupSelectedLayers}>
+                      <Ungroup size={12} />
+                    </button>
+                    <button type="button" title="Ocultar selecao" onClick={() => onSetSelectedLayersHidden(true)}>
+                      <EyeOff size={12} />
+                    </button>
+                    <button type="button" title="Mostrar selecao" onClick={() => onSetSelectedLayersHidden(false)}>
+                      <Eye size={12} />
+                    </button>
+                    <button type="button" title="Bloquear selecao" onClick={() => onSetSelectedLayersLocked(true)}>
+                      <Lock size={12} />
+                    </button>
+                    <button type="button" title="Desbloquear selecao" onClick={() => onSetSelectedLayersLocked(false)}>
+                      <Unlock size={12} />
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
               {layers.length === 0 ? (
                 <p className="sidebar__hint">Nenhum elemento ainda. Adicione pela aba Elementos.</p>
+              ) : visibleLayers.length === 0 ? (
+                <p className="sidebar__hint">Nenhuma camada encontrada.</p>
               ) : (
                 <div className="sidebar__layer-list">
-                  {sortedLayers
+                  {visibleLayers
                     .flatMap((layer) => {
                       if (!layer.groupId) return [layer];
                       if (renderedGroups.has(layer.groupId)) return [];
@@ -1092,6 +1168,13 @@ export function Sidebar({
                             </span>
                           </button>
                           <div className="sidebar__layer-actions">
+                            <button
+                              type="button"
+                              title="Renomear"
+                              onClick={() => startRename(layer)}
+                            >
+                              <FileType2 size={12} />
+                            </button>
                             <button
                               type="button"
                               title={isHidden ? 'Mostrar camada' : 'Ocultar camada'}

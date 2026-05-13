@@ -3614,23 +3614,56 @@ const canvasToBlob = (canvas: HTMLCanvasElement, type: string, quality?: number)
     canvas.toBlob((blob) => resolve(blob), type, quality);
   });
 
+interface OptimizedImageReadResult {
+  src: string;
+  optimized: boolean;
+  originalBytes: number;
+  storedBytes: number;
+  outputType: string;
+  width?: number;
+  height?: number;
+}
+
 export async function readImageFileAsOptimizedDataUrl(
   file: File,
   options: { maxDimension?: number; quality?: number; minBytes?: number } = {},
 ) {
+  return (await readImageFileAsOptimizedDataUrlWithMeta(file, options)).src;
+}
+
+export async function readImageFileAsOptimizedDataUrlWithMeta(
+  file: File,
+  options: { maxDimension?: number; quality?: number; minBytes?: number } = {},
+): Promise<OptimizedImageReadResult> {
   if (!file.type.startsWith('image/') || /svg|gif/i.test(file.type)) {
-    return readFileAsDataUrl(file);
+    return {
+      src: await readFileAsDataUrl(file),
+      optimized: false,
+      originalBytes: file.size,
+      storedBytes: file.size,
+      outputType: file.type,
+    };
   }
 
   const minBytes = options.minBytes ?? 220 * 1024;
-  if (file.size < minBytes) return readFileAsDataUrl(file);
+  if (file.size < minBytes) {
+    return {
+      src: await readFileAsDataUrl(file),
+      optimized: false,
+      originalBytes: file.size,
+      storedBytes: file.size,
+      outputType: file.type,
+    };
+  }
 
   try {
     const bitmap = await createImageBitmap(file);
+    const sourceWidth = bitmap.width;
+    const sourceHeight = bitmap.height;
     const maxDimension = options.maxDimension ?? 1600;
-    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
+    const width = Math.max(1, Math.round(sourceWidth * scale));
+    const height = Math.max(1, Math.round(sourceHeight * scale));
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -3638,7 +3671,15 @@ export async function readImageFileAsOptimizedDataUrl(
     const context = canvas.getContext('2d', { alpha: true });
     if (!context) {
       bitmap.close();
-      return readFileAsDataUrl(file);
+      return {
+        src: await readFileAsDataUrl(file),
+        optimized: false,
+        originalBytes: file.size,
+        storedBytes: file.size,
+        outputType: file.type,
+        width: sourceWidth,
+        height: sourceHeight,
+      };
     }
 
     context.imageSmoothingEnabled = true;
@@ -3647,10 +3688,34 @@ export async function readImageFileAsOptimizedDataUrl(
     bitmap.close();
 
     const optimized = await canvasToBlob(canvas, 'image/webp', options.quality ?? 0.84);
-    if (!optimized || optimized.size >= file.size * 0.96) return readFileAsDataUrl(file);
-    return readBlobAsDataUrl(optimized);
+    if (!optimized || optimized.size >= file.size * 0.96) {
+      return {
+        src: await readFileAsDataUrl(file),
+        optimized: false,
+        originalBytes: file.size,
+        storedBytes: file.size,
+        outputType: file.type,
+        width: sourceWidth,
+        height: sourceHeight,
+      };
+    }
+    return {
+      src: await readBlobAsDataUrl(optimized),
+      optimized: true,
+      originalBytes: file.size,
+      storedBytes: optimized.size,
+      outputType: 'image/webp',
+      width,
+      height,
+    };
   } catch {
-    return readFileAsDataUrl(file);
+    return {
+      src: await readFileAsDataUrl(file),
+      optimized: false,
+      originalBytes: file.size,
+      storedBytes: file.size,
+      outputType: file.type,
+    };
   }
 }
 
